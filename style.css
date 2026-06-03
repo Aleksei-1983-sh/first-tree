@@ -51,3 +51,7 @@ canvas {
 #hud span {
     color: var(--muted);
 }
+
+[data-hud-status] {
+    color: #bfdbfe;
+}
