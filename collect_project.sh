@@ -31,23 +31,49 @@ should_exclude() {
     return 1
 }
 
+# Проверяем, является ли файл текстовым.
+# Если утилиты `file` нет в окружении, используем понятный список текстовых расширений.
+is_text_file() {
+    local file="$1"
+
+    if command -v file >/dev/null 2>&1; then
+        file --mime-type "$file" | grep -qE 'text/|application/json|application/javascript|application/xml|application/x-sh'
+        return $?
+    fi
+
+    case "$file" in
+        *.html|*.css|*.js|*.json|*.md|*.sh|*.txt) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 # Рекурсивный обход файлов
+first_file=true
 find . -type f | while read -r file; do
     # Убираем ведущий './'
     rel_path="${file#./}"
-    
+
+    # Не добавляем выходной файл в самого себя, иначе cat выдаст предупреждение.
+    if [[ "$rel_path" == "$OUTPUT" ]]; then
+        continue
+    fi
+
     # Проверяем исключения
     if should_exclude "$rel_path"; then
         echo "Пропускаем: $rel_path"
         continue
     fi
-    
-    # Проверяем, является ли файл текстовым (простая проверка через file)
-    if file --mime-type "$file" | grep -qE 'text/|application/json|application/javascript|application/xml|application/x-sh'; then
+
+    # Проверяем, является ли файл текстовым.
+    if is_text_file "$file"; then
         echo "Добавляем: $rel_path"
+        if [[ "$first_file" == true ]]; then
+            first_file=false
+        else
+            echo -e "\n\n" >> "$OUTPUT"
+        fi
         echo "==================== FILE: $rel_path ====================" >> "$OUTPUT"
         cat "$file" >> "$OUTPUT"
-        echo -e "\n\n" >> "$OUTPUT"
     else
         echo "Пропускаем (бинарный): $rel_path"
     fi
