@@ -1,0 +1,580 @@
+==================== FILE: collect_project.sh ====================
+#!/bin/bash
+
+# Выходной файл
+OUTPUT="project_snapshot.txt"
+
+# Очистить предыдущий вывод (если нужен)
+> "$OUTPUT"
+
+# Какие директории исключить (имена папок, не пути)
+EXCLUDE_DIRS=("node_modules" ".git" "dist" "build" "coverage" ".vscode" ".idea" "__pycache__" ".cache")
+
+# Какие расширения файлов исключить (бинарные/медиа)
+EXCLUDE_EXT=("png" "jpg" "jpeg" "gif" "bmp" "ico" "svg" "mp4" "mp3" "wav" "webm" "bin" "exe" "dll" "so" "dylib" "zip" "tar" "gz" "7z" "pdf" "doc" "docx" "xls" "xlsx" "ttf" "woff" "woff2" "eot" "otf")
+
+# Функция проверки, нужно ли исключить файл
+should_exclude() {
+    local file="$1"
+    # Исключаем директории по имени (не по полному пути)
+    for excl in "${EXCLUDE_DIRS[@]}"; do
+        if [[ "$file" == *"/$excl/"* ]] || [[ "$file" == "$excl/"* ]] || [[ "$file" == *"/$excl" ]]; then
+            return 0
+        fi
+    done
+    # Исключаем по расширению
+    local ext="${file##*.}"
+    for excl_ext in "${EXCLUDE_EXT[@]}"; do
+        if [[ "$ext" == "$excl_ext" ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Рекурсивный обход файлов
+find . -type f | while read -r file; do
+    # Убираем ведущий './'
+    rel_path="${file#./}"
+    
+    # Проверяем исключения
+    if should_exclude "$rel_path"; then
+        echo "Пропускаем: $rel_path"
+        continue
+    fi
+    
+    # Проверяем, является ли файл текстовым (простая проверка через file)
+    if file --mime-type "$file" | grep -qE 'text/|application/json|application/javascript|application/xml|application/x-sh'; then
+        echo "Добавляем: $rel_path"
+        echo "==================== FILE: $rel_path ====================" >> "$OUTPUT"
+        cat "$file" >> "$OUTPUT"
+        echo -e "\n\n" >> "$OUTPUT"
+    else
+        echo "Пропускаем (бинарный): $rel_path"
+    fi
+done
+
+echo "Готово! Результат в файле: $OUTPUT"
+
+
+==================== FILE: main.js ====================
+import { Game } from './core/Game.js';
+
+// Запуск игры при загрузке страницы
+window.addEventListener('DOMContentLoaded', () => {
+    const game = new Game();
+    game.init();
+});
+
+
+==================== FILE: index.html ====================
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>FPS - Destroy Walls</title>
+    <link rel="stylesheet" href="style.css">
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+</head>
+<body>
+    <div id="info">
+        <strong>🎯 First Person Shooter</strong> | Move: WASD | Look: Mouse | Fire: Left Click<br>
+        Разрушайте стены из кубиков с помощью магических шаров!
+    </div>
+    <div id="ammo">Шаров: ∞</div>
+    <div id="controls-hint">Нажмите на сцену для захвата мыши (ESC для освобождения)</div>
+    <script type="module" src="main.js"></script>
+</body>
+</html>
+
+
+==================== FILE: utils/helpers.js ====================
+// Вспомогательные функции (например, генерация случайного числа)
+export function randomRange(min, max) {
+    return min + Math.random() * (max - min);
+}
+
+
+==================== FILE: style.css ====================
+body {
+    margin: 0;
+    overflow: hidden;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+#info {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    background: rgba(0,0,0,0.7);
+    color: white;
+    padding: 10px 15px;
+    border-radius: 8px;
+    pointer-events: none;
+    z-index: 100;
+    backdrop-filter: blur(5px);
+    font-size: 14px;
+}
+
+#ammo {
+    position: absolute;
+    bottom: 20px;
+    right: 20px;
+    background: rgba(0,0,0,0.7);
+    color: #ffaa00;
+    padding: 8px 15px;
+    border-radius: 8px;
+    font-size: 18px;
+    font-weight: bold;
+    font-family: monospace;
+    pointer-events: none;
+    z-index: 100;
+}
+
+#controls-hint {
+    position: absolute;
+    bottom: 20px;
+    left: 20px;
+    background: rgba(0,0,0,0.5);
+    color: #ccc;
+    padding: 5px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    pointer-events: none;
+    font-family: monospace;
+}
+
+
+==================== FILE: entities/Entity.js ====================
+export class Entity {
+    constructor(scene, physics) {
+        this.scene = scene;
+        this.physics = physics;
+        this.mesh = null;
+    }
+    
+    // Абстрактные методы
+    init() { throw new Error('Not implemented'); }
+    update() { throw new Error('Not implemented'); }
+    destroy() {
+        if (this.mesh) {
+            this.scene.remove(this.mesh);
+            if (this.physics) this.physics.removeMesh(this.mesh);
+        }
+    }
+}
+
+
+==================== FILE: entities/Wall.js ====================
+import * as THREE from 'three';
+
+export class Wall {
+    constructor(scene, physics, options) {
+        this.scene = scene;
+        this.physics = physics;
+        this.x = options.x;
+        this.z = options.z;
+        this.width = options.width;   // количество кубиков по X
+        this.height = options.height; // количество по Y
+        this.depth = options.depth;   // количество по Z (обычно 1)
+        this.cubeSize = 1.0;
+        this.cubes = [];
+    }
+    
+    build() {
+        const offsetX = this.x - (this.width * this.cubeSize) / 2 + this.cubeSize/2;
+        const offsetZ = this.z - (this.depth * this.cubeSize) / 2 + this.cubeSize/2;
+        const startY = 0.5; // основание на полу
+        
+        for (let i = 0; i < this.width; i++) {
+            for (let j = 0; j < this.height; j++) {
+                for (let k = 0; k < this.depth; k++) {
+                    const posX = offsetX + i * this.cubeSize;
+                    const posY = startY + j * this.cubeSize;
+                    const posZ = offsetZ + k * this.cubeSize;
+                    
+                    const geometry = new THREE.BoxGeometry(this.cubeSize, this.cubeSize, this.cubeSize);
+                    const material = new THREE.MeshStandardMaterial({ color: 0xaa8866, roughness: 0.4 });
+                    const cube = new THREE.Mesh(geometry, material);
+                    cube.position.set(posX, posY, posZ);
+                    cube.castShadow = true;
+                    cube.receiveShadow = false;
+                    cube.userData = {
+                        destructible: true,
+                        originalPos: cube.position.clone()
+                    };
+                    this.scene.add(cube);
+                    
+                    // Добавляем физическое тело (динамическое, массой 5)
+                    this.physics.addMesh(cube, 5, 0.6);
+                    
+                    this.cubes.push(cube);
+                }
+            }
+        }
+    }
+    
+    destroy() {
+        for (const cube of this.cubes) {
+            this.scene.remove(cube);
+            this.physics.removeMesh(cube);
+        }
+        this.cubes = [];
+    }
+}
+
+
+==================== FILE: entities/Player.js ====================
+import * as THREE from 'three';
+import { Entity } from './Entity.js';
+
+export class Player extends Entity {
+    constructor(camera, physics, scene) {
+        super(scene, physics);
+        this.camera = camera;
+        this.radius = 0.4;
+        this.height = 1.6;
+    }
+
+    async init() {
+        const geometry = new THREE.SphereGeometry(this.radius, 16, 16);
+        const material = new THREE.MeshStandardMaterial({ color: 0xff0000, visible: false });
+        this.mesh = new THREE.Mesh(geometry, material);
+        
+        this.mesh.position.set(0, this.height - this.radius, 0);
+        this.scene.add(this.mesh);
+        
+        // Добавляем в физику: масса 70, упругость 0.3
+        this.physics.addMesh(this.mesh, 70, 0.3);
+
+        // Ждём, пока аддон создаст тело (асинхронно)
+        const setupBody = () => {
+            if (this.mesh?.userData?.physicsBody) {
+                this.mesh.userData.physicsBody.setGravityScale(0, true);
+                this.mesh.userData.physicsBody.lockRotations(true);
+                return true;
+            }
+            return false;
+        };
+        if (!setupBody()) requestAnimationFrame(setupBody);
+    }
+
+    move(deltaVec) {
+        if (!this.mesh?.userData?.physicsBody) return;
+        const body = this.mesh.userData.physicsBody;
+        const currentVel = body.linvel();
+        body.setLinvel({ x: deltaVec.x, y: currentVel.y, z: deltaVec.z }, true);
+    }
+
+    update() {
+        // Камера следует за физическим телом (позиция уже синхронизирована аддоном)
+        if (this.mesh) {
+            this.camera.position.x = this.mesh.position.x;
+            this.camera.position.z = this.mesh.position.z;
+            this.camera.position.y = this.mesh.position.y + this.radius;
+        }
+    }
+}
+
+
+==================== FILE: entities/Ball.js ====================
+import * as THREE from 'three';
+import { Entity } from './Entity.js';
+
+export class Ball extends Entity {
+    constructor(scene, physics, origin, direction) {
+        super(scene, physics);
+        this.origin = origin.clone();
+        this.direction = direction.clone();
+        this.speed = 25;
+        this.lifeTime = 0;
+        this.maxLife = 5;
+    }
+
+    spawn() {
+        const geometry = new THREE.SphereGeometry(0.3, 16, 16);
+        const material = new THREE.MeshStandardMaterial({ color: 0xff5500, emissive: 0x442200 });
+        this.mesh = new THREE.Mesh(geometry, material);
+        this.mesh.castShadow = true;
+        this.mesh.position.copy(this.origin);
+        this.scene.add(this.mesh);
+        
+        this.physics.addMesh(this.mesh, 0.5, 0.8);
+        const velocity = this.direction.clone().multiplyScalar(this.speed);
+        this.physics.setLinearVelocity(this.mesh, velocity);
+    }
+
+    update(delta = 0.016) {
+        this.lifeTime += delta;
+        // Позиция уже синхронизирована — просто проверяем коллизии
+        this.checkCollisions();
+    }
+
+    checkCollisions() {
+        if (!this.mesh) return;
+        const ballPos = this.mesh.position;
+        const thresholdSq = 1.2 * 1.2;
+
+        for (let i = this.scene.children.length - 1; i >= 0; i--) {
+            const child = this.scene.children[i];
+            if (child === this.mesh || !child.userData?.destructible) continue;
+            if (ballPos.distanceToSquared(child.position) < thresholdSq) {
+                this.scene.remove(child);
+                this.physics.removeMesh(child);
+            }
+        }
+    }
+
+    shouldRemove() {
+        return this.lifeTime > this.maxLife || (this.mesh && this.mesh.position.y < -5);
+    }
+
+    destroy() {
+        if (this.mesh) {
+            this.scene.remove(this.mesh);
+            this.physics.removeMesh(this.mesh);
+        }
+    }
+}
+
+
+==================== FILE: core/Physics.js ====================
+export class Physics {
+    constructor() {
+        this.rapier = null;
+    }
+
+    async init() {
+        // Инициализируем RapierPhysics из three/addons
+        this.rapier = await import('three/addons/physics/RapierPhysics.js')
+            .then(mod => mod.RapierPhysics())
+            .then(physics => physics);
+        return this;
+    }
+
+    addScene(scene) {
+        // Добавляем сцену — все объекты с userData.physics будут обрабатываться
+        this.rapier.addScene(scene);
+    }
+
+    addMesh(mesh, mass = 1, restitution = 0.5) {
+        // Правильный вызов: addMesh(mesh, масса, упругость)
+        this.rapier.addMesh(mesh, mass, restitution);
+    }
+
+    removeMesh(mesh) {
+        this.rapier.removeMesh(mesh);
+    }
+
+    update() {
+        // Физика обновляется автоматически через addScene,
+        // этот метод оставлен для совместимости с кодом проекта
+    }
+
+    getPosition(mesh) {
+        // Позиция уже синхронизирована аддоном — возвращаем mesh.position
+        return mesh.position;
+    }
+
+    setLinearVelocity(mesh, velVec) {
+        if (mesh.userData.physicsBody) {
+            mesh.userData.physicsBody.setLinvel(velVec, true);
+        }
+    }
+}
+
+
+==================== FILE: core/Game.js ====================
+import * as THREE from 'three';
+import { Physics } from './Physics.js';
+import { Player } from '../entities/Player.js';
+import { Ball } from '../entities/Ball.js';
+import { Wall } from '../entities/Wall.js';
+
+export class Game {
+    constructor() {
+        this.scene = null;
+        this.camera = null;
+        this.renderer = null;
+        this.physics = null;
+        this.player = null;
+        this.balls = [];
+        this.walls = [];
+        this.clock = new THREE.Clock();
+        this.pointerLock = false;
+        this.mouseX = 0;
+        this.mouseY = 0;
+        this.moveState = { forward: false, backward: false, left: false, right: false };
+    }
+
+    async init() {
+        this.scene = new THREE.Scene();
+        this.scene.background = new THREE.Color(0x87CEEB);
+        this.scene.fog = new THREE.Fog(0x87CEEB, 30, 60);
+
+        this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        this.camera.position.set(0, 1.6, 5);
+        this.camera.rotation.order = 'YXZ';
+
+        this.renderer = new THREE.WebGLRenderer({ antialias: true });
+        this.renderer.setSize(window.innerWidth, window.innerHeight);
+        this.renderer.shadowMap.enabled = true;
+        this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        document.body.appendChild(this.renderer.domElement);
+
+        const ambientLight = new THREE.AmbientLight(0x404040, 1.5);
+        this.scene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+        dirLight.position.set(5, 10, 7);
+        dirLight.castShadow = true;
+        dirLight.shadow.mapSize.set(2048, 2048);
+        dirLight.shadow.camera.near = 0.5;
+        dirLight.shadow.camera.far = 50;
+        dirLight.shadow.camera.left = -20;
+        dirLight.shadow.camera.right = 20;
+        dirLight.shadow.camera.top = 20;
+        dirLight.shadow.camera.bottom = -20;
+        this.scene.add(dirLight);
+
+        this.physics = new Physics();
+        await this.physics.init();
+        this.physics.addScene(this.scene);
+
+        const groundGeo = new THREE.BoxGeometry(40, 0.5, 40);
+        const groundMat = new THREE.MeshStandardMaterial({ color: 0x8B5A2B, roughness: 0.8 });
+        const ground = new THREE.Mesh(groundGeo, groundMat);
+        ground.position.y = -0.25;
+        ground.receiveShadow = true;
+        ground.userData.physics = { mass: 0 };
+        this.scene.add(ground);
+
+        this.createWall({ x: -5, z: -8, width: 5, height: 3, depth: 1 });
+        this.createWall({ x: 5, z: -8, width: 5, height: 3, depth: 1 });
+        this.createWall({ x: 0, z: -12, width: 8, height: 4, depth: 1 });
+        this.createWall({ x: -8, z: -2, width: 1, height: 2, depth: 3 });
+        this.createWall({ x: 8, z: -2, width: 1, height: 2, depth: 3 });
+
+        this.player = new Player(this.camera, this.physics, this.scene);
+        await this.player.init();
+
+        this.setupControls();
+        this.animate();
+        window.addEventListener('resize', () => this.onResize());
+    }
+
+    createWall({ x, z, width, height, depth }) {
+        const wall = new Wall(this.scene, this.physics, { x, z, width, height, depth });
+        wall.build();
+        this.walls.push(wall);
+    }
+
+    shoot() {
+        const direction = new THREE.Vector3();
+        this.camera.getWorldDirection(direction);
+        direction.normalize();
+        const origin = this.camera.position.clone().add(direction.clone().multiplyScalar(0.8));
+        const ball = new Ball(this.scene, this.physics, origin, direction);
+        ball.spawn();
+        this.balls.push(ball);
+    }
+
+    setupControls() {
+        const canvas = this.renderer.domElement;
+        canvas.addEventListener('click', () => canvas.requestPointerLock());
+        
+        document.addEventListener('pointerlockchange', () => {
+            this.pointerLock = document.pointerLockElement === canvas;
+            document.body.style.cursor = this.pointerLock ? 'none' : 'auto';
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!this.pointerLock) return;
+            const sensitivity = 0.002;
+            this.mouseX += e.movementX * sensitivity;
+            this.mouseY = THREE.MathUtils.clamp(this.mouseY + e.movementY * sensitivity, -Math.PI/2.2, Math.PI/2.2);
+            this.camera.rotation.y = this.mouseX;
+            this.camera.rotation.x = this.mouseY;
+        });
+
+        const keyHandler = (e, state) => {
+            if (!this.pointerLock) return;
+            switch(e.code) {
+                case 'KeyW': this.moveState.forward = state; break;
+                case 'KeyS': this.moveState.backward = state; break;
+                case 'KeyA': this.moveState.left = state; break;
+                case 'KeyD': this.moveState.right = state; break;
+            }
+        };
+        window.addEventListener('keydown', (e) => keyHandler(e, true));
+        window.addEventListener('keyup', (e) => keyHandler(e, false));
+
+        canvas.addEventListener('mousedown', (e) => {
+            if (e.button === 0 && this.pointerLock) this.shoot();
+        });
+        canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    }
+
+    updateMovement() {
+        if (!this.pointerLock || !this.player?.mesh?.userData?.physicsBody) return;
+        
+        const speed = 8.0;
+        const move = new THREE.Vector3();
+        const forward = new THREE.Vector3();
+        this.camera.getWorldDirection(forward);
+        forward.y = 0;
+        forward.normalize();
+        const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0));
+
+        if (this.moveState.forward) move.add(forward);
+        if (this.moveState.backward) move.sub(forward);
+        if (this.moveState.left) move.sub(right);
+        if (this.moveState.right) move.add(right);
+        
+        if (move.lengthSq() > 0) move.normalize().multiplyScalar(speed);
+
+        // Применяем скорость к ФИЗИЧЕСКОМУ телу (Y сохраняется для гравитации)
+        const body = this.player.mesh.userData.physicsBody;
+        const currentVel = body.linvel();
+        body.setLinvel({ x: move.x, y: currentVel.y, z: move.z }, true);
+    }
+
+    cleanUp() {
+        for (let i = this.balls.length - 1; i >= 0; i--) {
+            if (this.balls[i].shouldRemove()) {
+                this.balls[i].destroy();
+                this.balls.splice(i, 1);
+            }
+        }
+    }
+
+    animate() {
+        requestAnimationFrame(() => this.animate());
+        
+        this.updateMovement();
+        // physics.update() пустой, но оставлен для совместимости
+        this.physics.update();
+        this.player.update();  // Синхронизация камеры с игроком
+        
+        for (const ball of this.balls) ball.update(0.016);
+        this.cleanUp();
+        
+        this.renderer.render(this.scene, this.camera);
+    }
+
+    onResize() {
+        this.camera.aspect = window.innerWidth / window.innerHeight;
+        this.camera.updateProjectionMatrix();
+        this.renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+}
+
+

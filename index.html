@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>three + physics playground</title>
+    <link rel="stylesheet" href="style.css">
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+            "@dimforge/rapier3d-compat": "https://unpkg.com/@dimforge/rapier3d-compat@0.19.3/rapier.es.js"
+        }
+    }
+    </script>
+</head>
+<body>
+    <div id="hud">
+        <strong>three + physics playground</strong>
+        <span>Orbit: mouse drag</span>
+        <span>Zoom: wheel</span>
+        <span>Goal: inspect how cubes react to gravity and collisions</span>
+    </div>
+    <script type="module" src="main.js"></script>
+</body>
+</html>
