@@ -10,8 +10,21 @@
 - The long-term learning target is a tiny destruction mini-game: a compact structure, throwable projectiles, simple collapse behavior, and a clear reset loop.
 - Legacy files in `entities/` and `utils/` remain as учебные заглушки and are not part of the active runtime unless this file is updated.
 
+## Project Structure
+
+- `index.html` — HTML-точка входа: подключает стили, import map для `three.js`/Rapier и запускает `main.js`.
+- `style.css` — стили страницы и HUD-панели с подсказками для наблюдения за сценой.
+- `main.js` — короткий стартовый файл: ждёт загрузку DOM, создаёт `Game` и показывает ошибку запуска, если сцена не стартовала.
+- `core/Game.js` — активная логика сцены Этапа 1: камера, renderer, OrbitControls, свет, платформа, сетка-наблюдение и физические кубы.
+- `core/Physics.js` — тонкая обёртка над `RapierPhysics`, чтобы Game не работал напрямую с деталями физического движка.
+- `entities/` — учебные placeholder-модули будущих игровых сущностей; сейчас не участвуют в активном runtime.
+- `utils/` — учебные placeholder-утилиты; сейчас не участвуют в активном runtime.
+- `collect_project.sh` — вспомогательный скрипт для сбора снимка проекта.
+- `project_snapshot.txt` — текстовый снимок проекта для обучения/обзора, не является активным runtime-файлом.
+
 ## Change Log
 
+- 2026-06-03: Реализован Этап 1 в активном runtime: добавлены читаемые имена, обучающие комментарии, сетка наблюдения и явное описание структуры проекта.
 - 2026-06-02: Reworked the project toward a minimal playground layout, removed the FPS-specific runtime flow, and kept the existing project files intact.
 - 2026-06-02: Simplified `entities/` and `utils/` into placeholder modules and documented the step-by-step learning path toward a small destruction-game prototype.
 
